@@ -7,6 +7,7 @@
 - Debug output can now be enabled by setting the `SINGULARITY_DEBUG` env var.
 - Debug output is now shown for nested `singularity` calls, in wrapped
   `unsquashfs` image extraction, and build stages.
+- Add package build for EL9.
 
 ### Bug Fixes
 
