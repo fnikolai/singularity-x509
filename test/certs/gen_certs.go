@@ -16,7 +16,9 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/sigstore/sigstore/pkg/cryptoutils"
+	"github.com/sirupsen/logrus"
 )
 
 var start = time.Date(2020, 4, 1, 0, 0, 0, 0, time.UTC)
@@ -46,6 +48,7 @@ func createRoot(start time.Time, key crypto.PrivateKey) (*x509.Certificate, erro
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 		MaxPathLen:            2,
+		OCSPServer:            []string{"http://localhost:9999"},
 	}
 
 	return createCertificate(tmpl, tmpl, key.(crypto.Signer).Public(), key)
@@ -66,6 +69,7 @@ func createIntermediate(start time.Time, key crypto.PublicKey, parent *x509.Cert
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 		MaxPathLen:            1,
+		OCSPServer:            []string{"http://localhost:9999"},
 	}
 
 	return createCertificate(tmpl, parent, key, parentKey)
@@ -87,36 +91,66 @@ func createLeaf(start time.Time, key crypto.PublicKey, parent *x509.Certificate,
 			x509.ExtKeyUsageCodeSigning,
 		},
 		MaxPathLenZero: true,
+		OCSPServer:     []string{"http://localhost:9999"},
 	}
 
 	return createCertificate(tmpl, parent, key, parentKey)
 }
 
-// writeCerts generates certificates and writes them to disk.
-func writeCerts() error {
-	pem, err := os.ReadFile(filepath.Join("..", "keys", "private.pem"))
+func loadKeys(keyPrefix string) (crypto.PrivateKey, crypto.PublicKey, error) {
+	// Create a new key for the CA
+	pem, err := os.ReadFile(filepath.Join("..", "keys", keyPrefix+"private.pem"))
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	pri, err := cryptoutils.UnmarshalPEMToPrivateKey(pem, cryptoutils.SkipPassword)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	pub := pri.(crypto.Signer).Public()
 
-	root, err := createRoot(start, pri)
+	return pri, pub, nil
+}
+
+// writeCerts generates certificates and writes them to disk.
+func writeCerts() error {
+	// create a new key for the CA
+	rootPri, _, err := loadKeys("")
+	if err != nil {
+		return errors.Wrap(err, "failed to load root keys")
+	}
+
+	// create a new key for the OCSP
+	_, intermediatePub, err := loadKeys("intermediate_")
+	if err != nil {
+		return errors.Wrap(err, "failed to load intermediate keys")
+	}
+
+	// create a new key for the Client
+	_, leafPub, err := loadKeys("leaf_")
+	if err != nil {
+		return errors.Wrap(err, "failed to load leaf keys")
+	}
+
+	// Create a CA certificate and self-sign it using the CA key.
+	logrus.Infof("Creating Root certificate")
+	root, err := createRoot(start, rootPri)
 	if err != nil {
 		return err
 	}
 
-	intermediate, err := createIntermediate(start, pub, root, pri)
+	// Sign the OCSP Certificate with the CA key.
+	logrus.Infof("Creating Intermediate certificate")
+	intermediate, err := createIntermediate(start, intermediatePub, root, rootPri)
 	if err != nil {
 		return err
 	}
 
-	leaf, err := createLeaf(start, pub, intermediate, pri)
+	// Sign the Client Certificate with the OCSP key
+	logrus.Infof("Creating Leaf certificate")
+	leaf, err := createLeaf(start, leafPub, root, rootPri)
 	if err != nil {
 		return err
 	}
