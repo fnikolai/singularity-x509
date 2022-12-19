@@ -91,10 +91,10 @@ func getCertificatePool(t *testing.T, file string) *x509.CertPool {
 			t.Fatal(err)
 		}
 
-		pool.AddCert(c)
+	if got, want := len(el), 1; got != want {
+		t.Fatalf("got %v entities, want %v", got, want)
 	}
-
-	return pool
+	return el[0]
 }
 
 type mockHKP struct {

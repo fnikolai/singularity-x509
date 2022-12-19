@@ -25,6 +25,7 @@ var (
 	certificatePath              string // --certificate flag
 	certificateIntermediatesPath string // --certificate-intermediates flag
 	certificateRootsPath         string // --certificate-roots flag
+	ocspVerify                   bool   // --ocsp-verify flag
 	pubKeyPath                   string // --key flag
 	localVerify                  bool   // -l flag
 	jsonVerify                   bool   // -j flag
@@ -113,6 +114,16 @@ var verifyCertificateRootsFlag = cmdline.Flag{
 	EnvKeys:      []string{"VERIFY_ROOTS"},
 }
 
+// --ocsp-verify
+var verifyOCSPFlag = cmdline.Flag{
+	ID:           "ocspVerifyFlag",
+	Value:        &ocspVerify,
+	DefaultValue: false,
+	Name:         "ocsp-verify",
+	Usage:        "enable online revocation check for certificates",
+	EnvKeys:      []string{"OCSP_VERIFY"},
+}
+
 // --key
 var verifyPublicKeyFlag = cmdline.Flag{
 	ID:           "publicKeyFlag",
@@ -175,6 +186,7 @@ func init() {
 		cmdManager.RegisterFlagForCmd(&verifyCertificateFlag, VerifyCmd)
 		cmdManager.RegisterFlagForCmd(&verifyCertificateIntermediatesFlag, VerifyCmd)
 		cmdManager.RegisterFlagForCmd(&verifyCertificateRootsFlag, VerifyCmd)
+		cmdManager.RegisterFlagForCmd(&verifyOCSPFlag, VerifyCmd)
 		cmdManager.RegisterFlagForCmd(&verifyPublicKeyFlag, VerifyCmd)
 		cmdManager.RegisterFlagForCmd(&verifyLocalFlag, VerifyCmd)
 		cmdManager.RegisterFlagForCmd(&verifyJSONFlag, VerifyCmd)
@@ -210,6 +222,13 @@ func doVerifyCmd(cmd *cobra.Command, cpath string) {
 		if err != nil {
 			sylog.Fatalf("Failed to load certificate: %v", err)
 		}
+
+		// reject self-signed certificates.
+		// if required, they should be placed in the system pool.
+		if string(c.AuthorityKeyId) == string(c.SubjectKeyId) {
+			sylog.Fatalf("self-signed certificates are not allowed")
+		}
+
 		opts = append(opts, singularity.OptVerifyWithCertificate(c))
 
 		if cmd.Flag(verifyCertificateIntermediatesFlag.Name).Changed {
@@ -226,6 +245,10 @@ func doVerifyCmd(cmd *cobra.Command, cpath string) {
 				sylog.Fatalf("Failed to load root certificates: %v", err)
 			}
 			opts = append(opts, singularity.OptVerifyWithRoots(p))
+		}
+
+		if cmd.Flag(verifyOCSPFlag.Name).Changed {
+			opts = append(opts, singularity.OptVerifyWithOCSP())
 		}
 
 	case cmd.Flag(verifyPublicKeyFlag.Name).Changed:
