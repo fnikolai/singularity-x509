@@ -11,24 +11,11 @@ package e2e
 import (
 	"flag"
 	"fmt"
-	"log"
-	"os"
-	"os/exec"
-	"path"
-	"path/filepath"
-	"strconv"
-	"strings"
-	"syscall"
-	"testing"
-
-	// Tests imports
 	"github.com/sylabs/singularity/e2e/actions"
-	e2ebuildcfg "github.com/sylabs/singularity/e2e/buildcfg"
 	"github.com/sylabs/singularity/e2e/cache"
 	"github.com/sylabs/singularity/e2e/cgroups"
 	"github.com/sylabs/singularity/e2e/cmdenvvars"
 	"github.com/sylabs/singularity/e2e/config"
-	"github.com/sylabs/singularity/e2e/delete"
 	"github.com/sylabs/singularity/e2e/docker"
 	"github.com/sylabs/singularity/e2e/ecl"
 	singularityenv "github.com/sylabs/singularity/e2e/env"
@@ -49,6 +36,17 @@ import (
 	"github.com/sylabs/singularity/e2e/security"
 	"github.com/sylabs/singularity/e2e/sign"
 	"github.com/sylabs/singularity/e2e/verify"
+	"log"
+	"os"
+	"os/exec"
+	"path"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+	"testing"
+
+	"github.com/sylabs/singularity/e2e/verifyocsp"
 	"github.com/sylabs/singularity/e2e/version"
 
 	"github.com/sylabs/singularity/e2e/internal/e2e"
@@ -92,6 +90,7 @@ var e2eGroups = map[string]testhelper.Group{
 	"SECURITY":   security.E2ETests,
 	"SIGN":       sign.E2ETests,
 	"VERIFY":     verify.E2ETests,
+	"OCSPVERIFY": verifyocsp.E2ETests,
 	"VERSION":    version.E2ETests,
 }
 

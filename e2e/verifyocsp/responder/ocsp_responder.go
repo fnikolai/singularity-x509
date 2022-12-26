@@ -3,20 +3,20 @@
 // distributed with the sources of this project regarding your rights to use or distribute this
 // software.
 
-package main
+package responder
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 )
 
 var DefaultOCSPResponderArgs = OCSPResponderArgs{
 	IndexFile:    "./index.txt",
 	ServerPort:   "9999",
-	OCSPKeyPath:  "../keys/intermediate_private.pem",
-	OCSPCertPath: "../certs/intermediate.pem",
-	CACertPath:   "../certs/root.pem",
+	OCSPKeyPath:  filepath.Join("..", "test", "keys", "ecdsa-private.pem"), // see test/gen_certs.go
+	OCSPCertPath: filepath.Join("..", "test", "certs", "root.pem"),         // see test/gen_certs.go
+	CACertPath:   filepath.Join("..", "test", "certs", "root.pem"),
 }
 
 // OCSPResponderArgs specifies the arguments for the OCSP Responder.
@@ -59,11 +59,4 @@ func StartOCSPResponder(args OCSPResponderArgs) error {
 	cmd.Stderr = os.Stderr
 
 	return cmd.Run()
-}
-
-func main() {
-	if err := StartOCSPResponder(DefaultOCSPResponderArgs); err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		os.Exit(1)
-	}
 }

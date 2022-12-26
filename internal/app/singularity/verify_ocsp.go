@@ -15,6 +15,7 @@ import (
 	"net/url"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/sylabs/singularity/pkg/sylog"
 	"golang.org/x/crypto/ocsp"
 )
@@ -31,11 +32,10 @@ const (
 )
 
 var (
-	errOCSPQuery       = errors.New("failed to contact OCSP Responder")
-	errOCSPUnsupported = errors.New("certificate does not support OCSP")
+	errOCSP = errors.New("OCSP verification has failed")
 )
 
-func OnlineRevocationCheck(chain ...*x509.Certificate) error {
+func OCSPVerify(chain ...*x509.Certificate) error {
 	// use the pool as an index for certificate issuers.
 	// fixme: we can drop this lookup if we assume that certificate N is always signed by certificate N+1.
 	pool := map[string]*x509.Certificate{}
@@ -47,7 +47,8 @@ func OnlineRevocationCheck(chain ...*x509.Certificate) error {
 	// recursively validate the certificate chain
 	for _, cert := range chain {
 		if err := validateCertificate(cert, pool); err != nil {
-			return errors.Wrapf(err, "certificate: '%s'", cert.Subject.String())
+			sylog.Warningf("OCSP verification has failed. Err: %s", err)
+			return errOCSP
 		}
 	}
 
@@ -119,6 +120,8 @@ func validateCertificate(cert *x509.Certificate, pool map[string]*x509.Certifica
 
 func queryOCSP(cert, issuer *x509.Certificate) (needsValidation *x509.Certificate, err error) {
 
+	logrus.Warnf("cert:[%s] issuer:[%s]", cert.Subject.String(), issuer.Subject.String())
+
 	if !issuer.IsCA {
 		return nil, errors.Errorf("signer's certificates can only belong to a CA")
 	}
@@ -127,30 +130,30 @@ func queryOCSP(cert, issuer *x509.Certificate) (needsValidation *x509.Certificat
 	 * Extract OCSP Server from the certificate in question
 	 *---------------------------------------------------*/
 	if len(cert.OCSPServer) == 0 {
-		return nil, errOCSPUnsupported
+		return nil, errors.Wrapf(err, "certificate does not support OCSP")
 	}
 
 	// RFC 5280, 4.2.2.1 (Authority Information Access)
 	ocspURL, err := url.Parse(cert.OCSPServer[0])
 	if err != nil {
-		return nil, errors.Wrapf(err, "canot parse OCSP Server from certificate")
+		return nil, errors.Wrapf(err, "cannot parse OCSP Server from certificate")
 	}
 
 	/*---------------------------------------------------
 	 * Create OCSP Request
 	 *---------------------------------------------------*/
-	opts := &ocsp.RequestOptions{Hash: crypto.SHA256}
+	// Hash contains the hash function that should be used when
+	// constructing the OCSP request. If zero, SHA-1 will be used.
+	opts := &ocsp.RequestOptions{Hash: crypto.SHA1}
 
 	buffer, err := ocsp.CreateRequest(cert, issuer, opts)
 	if err != nil {
-		sylog.Warningf("OCSP Create Request Error: %s", err)
-		return nil, errOCSPQuery
+		return nil, errors.Wrapf(err, "OCSP Create Request")
 	}
 
 	httpRequest, err := http.NewRequest(http.MethodPost, cert.OCSPServer[0], bytes.NewBuffer(buffer))
 	if err != nil {
-		sylog.Warningf("HTTP Create Request Error: %s", err)
-		return nil, errOCSPQuery
+		return nil, errors.Wrapf(err, "HTTP Create Request")
 	}
 
 	// Submit OCSP Request
@@ -161,8 +164,7 @@ func queryOCSP(cert, issuer *x509.Certificate) (needsValidation *x509.Certificat
 	httpClient := &http.Client{}
 	httpResponse, err := httpClient.Do(httpRequest)
 	if err != nil {
-		sylog.Warningf("OCSP Send Request Error: %s", err)
-		return nil, errOCSPQuery
+		return nil, errors.Wrapf(err, "OCSP Send Request")
 	}
 
 	defer httpResponse.Body.Close()
@@ -175,15 +177,14 @@ func queryOCSP(cert, issuer *x509.Certificate) (needsValidation *x509.Certificat
 		return nil, errors.Wrapf(err, "cannot read response body")
 	}
 
-	ocspResponse, err := ocsp.ParseResponse(output, issuer)
+	ocspResponse, err := ocsp.ParseResponseForCert(output, cert, issuer)
 	if err != nil {
-		return nil, errors.Wrapf(err, "certificate error")
+		return nil, errors.Wrapf(err, "OCSP response error")
 	}
 
 	/*---------------------------------------------------
-	 * Validate OCSP Response
+	 * Handle OCSP Response
 	 *---------------------------------------------------*/
-
 	// The OCSP's certificate is signed by a third-party issuer that we need to verify.
 	if ocspResponse.Certificate != nil {
 		needsValidation = ocspResponse.Certificate

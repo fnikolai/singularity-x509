@@ -166,6 +166,7 @@ func verifyCertificate(c *x509.Certificate, intermediates, roots *x509.CertPool)
 		Roots:         roots,
 		KeyUsages: []x509.ExtKeyUsage{
 			x509.ExtKeyUsageCodeSigning,
+			x509.ExtKeyUsageClientAuth,
 		},
 	}
 
@@ -190,12 +191,10 @@ func (v verifier) getOpts(ctx context.Context, f *sif.FileImage) ([]integrity.Ve
 				return nil, errors.New("Unhandled OCSP condition")
 			}
 
-			ocspErr := OnlineRevocationCheck(chain[0]...)
-			if errors.Is(ocspErr, errOCSPQuery) {
+			ocspErr := OCSPVerify(chain[0]...)
+			if ocspErr != nil {
 				// TODO: We need to decide whether this should be strict or permissive.
-				return nil, errors.Wrapf(ocspErr, "OCSP server is unavailable")
-			} else if ocspErr != nil {
-				return nil, errors.Wrapf(ocspErr, "OCSP verification has failed")
+				return nil, ocspErr
 			}
 
 			sylog.Infof("OCSP validation has passed")

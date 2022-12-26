@@ -121,7 +121,7 @@ var verifyOCSPFlag = cmdline.Flag{
 	DefaultValue: false,
 	Name:         "ocsp-verify",
 	Usage:        "enable online revocation check for certificates",
-	EnvKeys:      []string{"OCSP_VERIFY"},
+	EnvKeys:      []string{"VERIFY_OCSP"},
 }
 
 // --key

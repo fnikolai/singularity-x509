@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/sigstore/sigstore/pkg/cryptoutils"
+	"github.com/sirupsen/logrus"
 )
 
 var start = time.Date(2020, 4, 1, 0, 0, 0, 0, time.UTC)
@@ -45,6 +46,12 @@ func createCertificate(tmpl, parent *x509.Certificate, pub, pri any) (*x509.Cert
 	// Use predictable source of "randomness" to generate corpus deterministically.
 	var rand zeroReader
 
+	logrus.Warnf("SKATA %s, %s, %s, %T",
+		tmpl.Subject.String(),
+		tmpl.PublicKeyAlgorithm,
+		tmpl.SignatureAlgorithm,
+		pri)
+
 	der, err := x509.CreateCertificate(rand, tmpl, parent, pub, pri)
 	if err != nil {
 		return nil, err
@@ -73,6 +80,7 @@ func createRoot(start time.Time) (crypto.PrivateKey, *x509.Certificate, error) {
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 		MaxPathLen:            2,
+		OCSPServer:            []string{"http://localhost:9999"},
 	}
 
 	c, err := createCertificate(tmpl, tmpl, key.(crypto.Signer).Public(), key)
@@ -99,9 +107,20 @@ func createIntermediate(start time.Time, parentKey crypto.PrivateKey, parent *x5
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 		MaxPathLen:            1,
+		OCSPServer:            []string{"http://localhost:9999"},
 	}
 
+	fmt.Printf("Intermediate ParentSignature %s\n", parent.SignatureAlgorithm)
+
 	c, err := createCertificate(tmpl, parent, key.(crypto.Signer).Public(), parentKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err := c.CheckSignatureFrom(parent); err != nil {
+		return nil, nil, err
+	}
+
 	return key, c, err
 }
 
@@ -126,9 +145,21 @@ func createLeaf(start time.Time, parentKey crypto.PrivateKey, parent *x509.Certi
 			x509.ExtKeyUsageCodeSigning,
 		},
 		MaxPathLenZero: true,
+		OCSPServer:     []string{"http://localhost:9999"},
 	}
 
-	return createCertificate(tmpl, parent, key.(crypto.Signer).Public(), parentKey)
+	fmt.Printf("Leaf ParentSignature %s\n", parent.SignatureAlgorithm)
+
+	c, err := createCertificate(tmpl, parent, key.(crypto.Signer).Public(), parentKey)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := c.CheckSignatureFrom(parent); err != nil {
+		return nil, err
+	}
+
+	return c, nil
 }
 
 // writeCerts generates certificates and writes them to disk.
